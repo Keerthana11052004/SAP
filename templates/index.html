@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP HANA Data</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>SAP HANA Data</h1>
+    <form action="/" method="GET" class="form-horizontal">
+        <div class="form-group">
+            <label for="odata_url">OData URL:</label>
+            <input type="text" id="odata_url" name="odata_url" value="{{ request.args.get('odata_url', '') }}">
+        </div>
+        <div class="form-group">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" value="{{ request.args.get('username', '') }}">
+        </div>
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" value="{{ request.args.get('password', '') }}">
+        </div>
+        <input type="hidden" name="odata_url" value="{{ request.args.get('odata_url', '') }}">
+        <input type="hidden" name="username" value="{{ request.args.get('username', '') }}">
+        <input type="hidden" name="password" value="{{ request.args.get('password', '') }}">
+        <button type="submit">Fetch Data</button>
+    </form>
+
+    <form action="/schedule" method="POST" class="form-horizontal">
+        <div class="form-group">
+            <label for="minute">Minute:</label>
+            <select id="minute" name="minute">
+                <option value="*">Every Minute</option>
+                {% for i in range(60) %}
+                <option value="{{ i }}">{{ i }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="hour">Hour:</label>
+            <select id="hour" name="hour">
+                <option value="*">Every Hour</option>
+                {% for i in range(24) %}
+                <option value="{{ i }}">{{ i }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="day_of_month">Day of Month:</label>
+            <select id="day_of_month" name="day_of_month">
+                <option value="*">Every Day</option>
+                {% for i in range(1, 32) %}
+                <option value="{{ i }}">{{ i }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="month">Month:</label>
+            <select id="month" name="month">
+                <option value="*">Every Month</option>
+                {% for i in range(1, 13) %}
+                <option value="{{ i }}">{{ i }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="day_of_week">Day of Week:</label>
+            <select id="day_of_week" name="day_of_week">
+                <option value="*">Every Day of Week</option>
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+            </select>
+        </div>
+        <input type="hidden" name="odata_url" value="{{ request.args.get('odata_url', '') }}">
+        <input type="hidden" name="username" value="{{ request.args.get('username', '') }}">
+        <input type="hidden" name="password" value="{{ request.args.get('password', '') }}">
+        <button type="submit">Set Schedule</button>
+    </form>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+    {% if success_message %}
+        <p class="success">{{ success_message }}</p>
+    {% endif %}
+    {% if data %}
+        <table>
+            <thead>
+                <tr>
+                    {% for key in data[0].keys() %}
+                        <th>{{ key }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in data %}
+                    <tr>
+                        {% for key in data[0].keys() %}
+                            <td>{{ item[key] }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</body>
+</html>
