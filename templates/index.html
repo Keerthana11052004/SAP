@@ -10,24 +10,56 @@
     <h1>SAP HANA Data</h1>
     <form action="/" method="GET" class="form-horizontal">
         <div class="form-group">
-            <label for="odata_url">OData URL:</label>
+            <label for="odata_url">URL:</label>
             <input type="text" id="odata_url" name="odata_url" value="{{ request.args.get('odata_url', '') }}">
         </div>
         <div class="form-group">
-            <label for="username">Username:</label>
+            <label for="username">USER:</label>
             <input type="text" id="username" name="username" value="{{ request.args.get('username', '') }}">
         </div>
         <div class="form-group">
-            <label for="password">Password:</label>
+            <label for="password">PASS:</label>
             <input type="password" id="password" name="password" value="{{ request.args.get('password', '') }}">
         </div>
         <input type="hidden" name="odata_url" value="{{ request.args.get('odata_url', '') }}">
         <input type="hidden" name="username" value="{{ request.args.get('username', '') }}">
         <input type="hidden" name="password" value="{{ request.args.get('password', '') }}">
-        <button type="submit">Fetch Data</button>
+        <button type="submit" name="action" value="fetch">Fetch Data</button>
+        <button type="submit" name="action" value="send_mail" class="button-spacing">Send Immediate Mail</button>
     </form>
 
-    <form action="/schedule" method="POST" class="form-horizontal">
+    <h2>Schedules</h2>
+    <table id="schedules">
+        <thead>
+            <tr>
+                <th>Minute</th>
+                <th>Hour</th>
+                <th>Day of Month</th>
+                <th>Month</th>
+                <th>Day of Week</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for schedule in schedules %}
+                <tr>
+                    <td>{{ schedule.minute }}</td>
+                    <td>{{ schedule.hour }}</td>
+                    <td>{{ schedule.day_of_month }}</td>
+                    <td>{{ schedule.month }}</td>
+                    <td>{{ schedule.day_of_week }}</td>
+                    <td>
+                        <form action="/delete_schedule" method="POST" style="display: inline;">
+                            <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
+                            <button type="submit">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <form action="/add_schedule" method="POST" class="form-horizontal">
         <div class="form-group">
             <label for="minute">Minute:</label>
             <select id="minute" name="minute">
@@ -84,7 +116,7 @@
         <input type="hidden" name="odata_url" value="{{ request.args.get('odata_url', '') }}">
         <input type="hidden" name="username" value="{{ request.args.get('username', '') }}">
         <input type="hidden" name="password" value="{{ request.args.get('password', '') }}">
-        <button type="submit">Set Schedule</button>
+        <button type="submit">Add Schedule</button>
     </form>
 
     {% if error %}

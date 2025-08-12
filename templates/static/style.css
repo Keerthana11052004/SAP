@@ -39,3 +39,31 @@ tr:nth-child(even) {
 .form-group {
     margin-right: 15px;
 }
+
+#odata_url {
+    width: 650px;
+}
+
+#username, #password {
+    width: 150px;
+}
+
+.button-spacing {
+    margin-left: 10px;
+}
+
+#schedules {
+    width: 80%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+#schedules th, #schedules td {
+    border: 1px solid #ddd;
+    padding: 4px;
+    text-align: center;
+}
+
+#schedules th {
+    background-color: #f2f2f2;
+}
