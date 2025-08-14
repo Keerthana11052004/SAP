@@ -29,6 +29,18 @@ RECIPIENT_EMAIL = 'automation1@violintec.com'
 # Default cron schedule
 # cron_schedule = os.environ.get('CRON_SCHEDULE', '*/30 * * * *')
 
+def format_doc_type(doc_type):
+    if doc_type == 'SuplrDwnPaytReqToBeVerified':
+        return 'Supplier DPR'
+    
+    import re
+    return re.sub(r'(?<!^)(?=[A-Z])', ' ', doc_type)
+
+def format_doc_number(doc_number, doc_type):
+    if doc_type == 'SuplrDwnPaytReqToBeVerified':
+        return doc_number[:-8]
+    return doc_number.lstrip('0')
+
 def send_email(recipient_email, data):
     # Group documents by SAPObjectNodeRepresentation
     grouped_data = {}
@@ -38,11 +50,12 @@ def send_email(recipient_email, data):
             grouped_data[doc_type] = []
         grouped_data[doc_type].append(item.get('SAPBusinessObjectNodeKey1'))
 
+    total_docs = sum(len(docs) for docs in grouped_data.values())
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = "SAP documents pending for your approval"
+    msg['Subject'] = f"Your Approval Needed: SAP Documents in Queue ({total_docs})"
     msg['From'] = EMAIL_ADDRESS
-    msg['To'] = RECIPIENT_EMAIL
-    msg['Cc'] = 'narayanan.j@violintec.com'
+    msg['To'] = RECIPIENT_EMAIL 
+    msg['Cc'] = 'shankar.v@violintec.com,narayanan.j@violintec.com,erp@violintec.com,rangarajan.d@violintec.com'
     msg['X-Priority'] = '1 (Highest)'
     msg['X-MSMail-Priority'] = 'High'
     msg['Importance'] = 'High'
@@ -59,24 +72,28 @@ def send_email(recipient_email, data):
       <head></head>
       <body>
         <div>
-          <p>Dear {approver_name} ({recipient_email}),</p>
+          <p>Dear {approver_name},</p>
           <p>The following SAP documents are pending for your approval. Kindly review and approve them at the earliest:</p>
     """
 
-    for doc_type, doc_numbers in grouped_data.items():
+    for doc_type, doc_numbers in sorted(grouped_data.items()):
+        formatted_doc_type = format_doc_type(doc_type)
+        count = len(doc_numbers)
         html += f"""
-            <p><strong>{doc_type}:</strong></p>
+            <p><strong>{formatted_doc_type} ({count}):</strong></p>
             <ul>
         """
-        for doc_number in doc_numbers:
-            html += f"<li>{doc_number}</li>"
+        for doc_number in sorted(doc_numbers):
+            formatted_doc_number = format_doc_number(doc_number, doc_type)
+            html += f"<li>{formatted_doc_number}</li>"
         html += "</ul>"
 
     html += f"""
           <p><strong>SAP Link:</strong> https://my426081.s4hana.cloud.sap/ui#WorkflowTask-displayInbox</p>
           <br>
           <p>Regards,<br>
-           Enterprise Automation Office</p>
+           SAP Automation.</p>
+          <i>This is an automated, informative Email. Please don't reply to this.</i></i>
         </div>
       </body>
     </html>
@@ -86,46 +103,20 @@ def send_email(recipient_email, data):
     msg.attach(part2)
 
     try:
+        recipients = [RECIPIENT_EMAIL] + msg['Cc'].split(',')
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_ADDRESS, RECIPIENT_EMAIL, msg.as_string())
+        server.sendmail(EMAIL_ADDRESS, recipients, msg.as_string())
         server.quit()
-        print(f"Email sent successfully to {RECIPIENT_EMAIL} at {datetime.now()}")
+        print(f"Email sent successfully to {RECIPIENT_EMAIL} (Cc: {msg['Cc']}) at {datetime.now()}")
     except Exception as e:
         print(f"Failed to send email: {e}")
 
-def fetch_and_send():
+def fetch_and_send(api_url, username, password):
     with app.app_context():
-        data = None
-        error = None
-        print(f"fetch_and_send called at {datetime.now()}")
+        print(f"fetch_and_send called at {datetime.now()} for API: {api_url}")
         try:
-            connection = get_db_connection()
-            print("DB connection established in fetch_and_send.")
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM credentials ORDER BY id DESC LIMIT 1")
-                credentials = cursor.fetchone()
-                print(f"Credentials fetched from DB: {credentials}")
-            connection.close()
-
-            if credentials:
-                api_url = credentials['api_url']
-                username = credentials['username']
-                password = credentials['password']
-            else:
-                api_url = None
-                username = None
-                password = None
-
-            print(f"API URL: {api_url}, Username: {username}")
-
-            if not all([api_url, username, password]):
-                print("API credentials not found in database. Skipping fetch.")
-                if not credentials:
-                    print("Credentials object is None.")
-                return
-
             auth_string = f"{username}:{password}"
             encoded_auth = base64.b64encode(auth_string.encode()).decode()
             auth_header = {"Authorization": f"Basic {encoded_auth}"}
@@ -144,7 +135,6 @@ def fetch_and_send():
 
             if all_data:
                 print(f"Data fetched: {len(all_data)} items. Grouping by email and sending...")
-                # Group data by WorkplaceAddress (email)
                 grouped_by_email = {}
                 for item in all_data:
                     email = item.get('EmailAddress')
@@ -153,79 +143,102 @@ def fetch_and_send():
                             grouped_by_email[email] = []
                         grouped_by_email[email].append(item)
 
-                # Send email to each user
                 for email, user_data in grouped_by_email.items():
                     send_email(email, user_data)
             else:
                 print("No data fetched, not sending email.")
         except requests.exceptions.RequestException as e:
-            error = str(e)
-            print(f"Error fetching data: {error}")
+            print(f"Error fetching data: {e}")
         except Exception as e:
-            error = str(e)
-            print(f"Error: {error}")
+            print(f"Error: {e}")
 
-def send_immediate_mail():
+def send_immediate_mail(api_url, username, password):
     """Fetches data and sends an email immediately."""
     print("Immediate mail sending process started.")
-    fetch_and_send()
+    fetch_and_send(api_url, username, password)
     print("Immediate mail sending process finished.")
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    print("Index route called!")
     data = None
     error = None
     success_message = None
-    
-    # Get credentials from request arguments
-    api_url = request.args.get('odata_url', '')
-    username = request.args.get('username', '')
-    password = request.args.get('password', '')
 
-    action = request.args.get('action')
+    if request.method == 'POST':
+        action = request.form.get('action')
+        api_url = request.form.get('odata_url')
+        username = request.form.get('username')
+        password = request.form.get('password')
 
-    try:
-        if api_url and username and password:
-            # Save credentials to the database
-            connection = get_db_connection()
-            with connection.cursor() as cursor:
-                cursor.execute("TRUNCATE TABLE credentials")
-                print("Truncated credentials table.")
-                cursor.execute("INSERT INTO credentials (api_url, username, password) VALUES (%s, %s, %s)", (api_url, username, password))
-                print("Inserted new credentials.")
-            connection.commit()
-            connection.close()
-            print("Saved credentials to database.")
+        if action == 'fetch':
+            if api_url and username and password:
+                try:
+                    auth_string = f"{username}:{password}"
+                    encoded_auth = base64.b64encode(auth_string.encode()).decode()
+                    auth_header = {"Authorization": f"Basic {encoded_auth}"}
 
-            if action == 'fetch':
-                auth_string = f"{username}:{password}"
-                encoded_auth = base64.b64encode(auth_string.encode()).decode()
-                auth_header = {"Authorization": f"Basic {encoded_auth}"}
+                    response = requests.get(api_url + "?$format=xml", headers=auth_header, verify=False)
+                    response.raise_for_status()
 
-                response = requests.get(api_url + "?$format=xml", headers=auth_header, verify=False)
-                response.raise_for_status()
-
-                root = ET.fromstring(response.content)
-                entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
-                data = []
-                for entry in entries:
-                    properties = {}
-                    for prop in entry.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}properties/*'):
-                        properties[prop.tag.split('}')[-1]] = prop.text
-                    data.append(properties)
-                success_message = "Data fetched successfully."
-
-            elif action == 'send_mail':
-                send_immediate_mail()
+                    root = ET.fromstring(response.content)
+                    entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+                    data = []
+                    for entry in entries:
+                        properties = {}
+                        for prop in entry.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}properties/*'):
+                            properties[prop.tag.split('}')[-1]] = prop.text
+                        data.append(properties)
+                    success_message = "Data fetched successfully."
+                except requests.exceptions.RequestException as e:
+                    error = str(e)
+                except Exception as e:
+                    error = str(e)
+            else:
+                error = "API URL, username, and password are required to fetch data."
+        elif action == 'send_mail':
+            if api_url and username and password:
+                send_immediate_mail(api_url, username, password)
                 success_message = "Immediate mail sent successfully."
+            else:
+                error = "API URL, username, and password are required to send immediate mail."
+        elif action == 'add_schedule':
+            minute = request.form.get('minute')
+            hour = request.form.get('hour')
+            day_of_month = request.form.get('day_of_month')
+            month = request.form.get('month')
+            day_of_week = request.form.get('day_of_week')
+            # api_url, username, password already retrieved above
 
-    except requests.exceptions.RequestException as e:
-        error = str(e)
-    except Exception as e:
-        error = str(e)
+            if not all([api_url, username, password]):
+                error = "API URL, username, and password are required to add a schedule."
+            else:
+                try:
+                    connection = get_db_connection()
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "INSERT INTO schedules (minute, hour, day_of_month, month, day_of_week, api_url, username, password) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                            (minute, hour, day_of_month, month, day_of_week, api_url, username, password)
+                        )
+                    connection.commit()
+                    connection.close()
+                    configure_scheduler()
+                    success_message = "Schedule added successfully."
+                except Exception as e:
+                    error = f"Error adding schedule: {e}"
 
-    # Fetch schedules to display on the page
+        elif action == 'delete_schedule':
+            schedule_id = request.form.get('schedule_id')
+            try:
+                connection = get_db_connection()
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
+                connection.commit()
+                connection.close()
+                configure_scheduler()
+                success_message = "Schedule deleted successfully."
+            except Exception as e:
+                error = f"Error deleting schedule: {e}"
+
     connection = get_db_connection()
     with connection.cursor() as cursor:
         cursor.execute("SELECT * FROM schedules ORDER BY hour, minute")
@@ -234,53 +247,6 @@ def index():
 
     return render_template('index.html', data=data, error=error, success_message=success_message, schedules=schedules)
 
-@app.route('/add_schedule', methods=['POST'])
-def add_schedule():
-    minute = request.form.get('minute')
-    hour = request.form.get('hour')
-    day_of_month = request.form.get('day_of_month')
-    month = request.form.get('month')
-    day_of_week = request.form.get('day_of_week')
-    api_url = request.form.get('odata_url')
-    username = request.form.get('username')
-    password = request.form.get('password')
-
-    error = None
-    success_message = None
-    try:
-        connection = get_db_connection()
-        with connection.cursor() as cursor:
-            cursor.execute("INSERT INTO schedules (minute, hour, day_of_month, month, day_of_week) VALUES (%s, %s, %s, %s, %s)", (minute, hour, day_of_month, month, day_of_week))
-        connection.commit()
-        connection.close()
-        configure_scheduler() # Reconfigure scheduler with new schedule
-        success_message = "Schedule added successfully."
-    except Exception as e:
-        error = f"Error adding schedule: {e}"
-
-    return redirect(url_for('index', odata_url=api_url, username=username, password=password, success_message=success_message, error=error))
-
-@app.route('/delete_schedule', methods=['POST'])
-def delete_schedule():
-    schedule_id = request.form.get('schedule_id')
-    api_url = request.form.get('odata_url')
-    username = request.form.get('username')
-    password = request.form.get('password')
-
-    error = None
-    success_message = None
-    try:
-        connection = get_db_connection()
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
-        connection.commit()
-        connection.close()
-        configure_scheduler() # Reconfigure scheduler after deleting schedule
-        success_message = "Schedule deleted successfully."
-    except Exception as e:
-        error = f"Error deleting schedule: {e}"
-
-    return redirect(url_for('index', odata_url=api_url, username=username, password=password, success_message=success_message, error=error))
 def get_db_connection():
     connection = pymysql.connect(host=DB_HOST,
                                  user=DB_USER,
@@ -292,6 +258,7 @@ def get_db_connection():
 def init_db():
     connection = get_db_connection()
     with connection.cursor() as cursor:
+        cursor.execute("TRUNCATE TABLE schedules")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS schedules (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -299,12 +266,7 @@ def init_db():
                 hour VARCHAR(255) NOT NULL,
                 day_of_month VARCHAR(255) NOT NULL,
                 month VARCHAR(255) NOT NULL,
-                day_of_week VARCHAR(255) NOT NULL
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS credentials (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                day_of_week VARCHAR(255) NOT NULL,
                 api_url VARCHAR(255) NOT NULL,
                 username VARCHAR(255) NOT NULL,
                 password VARCHAR(255) NOT NULL
@@ -313,7 +275,13 @@ def init_db():
     connection.commit()
     connection.close()
 
+scheduler = None
+
 def configure_scheduler():
+    global scheduler
+    if scheduler and scheduler.running:
+        scheduler.shutdown()
+
     scheduler = BackgroundScheduler()
     try:
         connection = get_db_connection()
@@ -324,7 +292,13 @@ def configure_scheduler():
 
         if schedules:
             for schedule in schedules:
-                scheduler.add_job(fetch_and_send, 'cron', minute=schedule['minute'], hour=schedule['hour'], day=schedule['day_of_month'], month=schedule['month'], day_of_week=schedule['day_of_week'])
+                scheduler.add_job(fetch_and_send, 'cron', 
+                                  minute=schedule['minute'], 
+                                  hour=schedule['hour'], 
+                                  day=schedule['day_of_month'], 
+                                  month=schedule['month'], 
+                                  day_of_week=schedule['day_of_week'], 
+                                  args=[schedule['api_url'], schedule['username'], schedule['password']])
         else:
             print("No schedules found in DB. No default cron job added.")
     except Exception as e:
@@ -336,4 +310,5 @@ def configure_scheduler():
 if __name__ == '__main__':
     init_db()
     configure_scheduler()
-    app.run(debug=False)
+    app.run(host="0.0.0.0", port=5000)
+
