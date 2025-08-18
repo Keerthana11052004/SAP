@@ -1,5 +1,4 @@
-import os
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for
 import requests
 import xml.etree.ElementTree as ET
 import base64
@@ -15,11 +14,10 @@ import socket
 app = Flask(__name__, static_folder='templates/static')
 app.config['SECRET_KEY'] = os.urandom(24)
 
-# ----------------------- Configuration ----------------------- #
-DB_HOST = '172.31.24.226'
-DB_PORT = 3306
-DB_USER = 'keerthana'
-DB_PASSWORD = 'V!0lin7ec2025'
+# DB configuration
+DB_HOST = 'localhost'
+DB_USER = 'root'
+DB_PASSWORD = 'Violin@12'
 DB_NAME = 'approver_db'
 
 EMAIL_ADDRESS = os.environ.get('EMAIL_USER', 'sapnoreply@violintec.com')
@@ -53,7 +51,7 @@ def send_email(recipient_email, data):
     msg['Subject'] = f"Your Approval Needed: SAP Documents in Queue ({total_docs})"
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = RECIPIENT_EMAIL
-    msg['Cc'] = 'keerthana.u@violintec.com'
+    msg['Cc'] = 'narayanan.j@violintec.com'
     msg['X-Priority'] = '1 (Highest)'
     msg['X-MSMail-Priority'] = 'High'
     msg['Importance'] = 'High'
@@ -126,103 +124,124 @@ def fetch_and_send(api_url, username, password):
             else:
                 print("No data fetched.")
         except Exception as e:
-            print(f"Error fetching data: {e}")
+            error = str(e)
+            print(f"Error: {error}")
 
-def fetch_data(api_url, username, password):
-    print(f"fetch_data called at {datetime.now()} for API: {api_url}")
-    try:
-        auth_string = f"{username}:{password}"
-        encoded_auth = base64.b64encode(auth_string.encode()).decode()
-        headers = {"Authorization": f"Basic {encoded_auth}"}
-
-        response = requests.get(api_url + "?$format=xml", headers=headers, verify=False)
-        response.raise_for_status()
-
-        root = ET.fromstring(response.content)
-        entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
-        all_data = []
-        for entry in entries:
-            props = {prop.tag.split('}')[-1]: prop.text for prop in entry.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}properties/*')}
-            all_data.append(props)
-        return all_data
-    except Exception as e:
-        print(f"Error fetching data: {e}")
-        return None
-
-def send_immediate_mail(api_url, username, password):
+def send_immediate_mail():
+    """Fetches data and sends an email immediately."""
     print("Immediate mail sending process started.")
     fetch_and_send(api_url, username, password)
     print("Immediate mail sending process finished.")
 
-# ----------------------- Routes ----------------------- #
-@app.route(f'{url_prefix}/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET', 'POST'])
 def index():
     data = None
     error = None
     success_message = None
+    
+    # Get credentials from request arguments
+    api_url = request.args.get('odata_url', '')
+    username = request.args.get('username', '')
+    password = request.args.get('password', '')
 
-    if request.method == 'POST':
-        action = request.form.get('action')
-        api_url = request.form.get('odata_url')
-        username = request.form.get('username')
-        password = request.form.get('password')
+    action = request.args.get('action')
 
-        if action == 'fetch' and api_url and username and password:
-            data = fetch_data(api_url, username, password)
-            if data:
-                success_message = "Data fetched successfully."
-            else:
-                error = "Failed to fetch data."
-        elif action == 'send_mail' and api_url and username and password:
-            send_immediate_mail(api_url, username, password)
-            success_message = "Immediate mail sent successfully."
-        elif action == 'add_schedule' and api_url and username and password:
-            minute = request.form.get('minute')
-            hour = request.form.get('hour')
-            day_of_month = request.form.get('day_of_month')
-            month = request.form.get('month')
-            day_of_week = request.form.get('day_of_week')
-            try:
-                conn = get_db_connection()
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO schedules (minute, hour, day_of_month, month, day_of_week, api_url, username, password) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                        (minute, hour, day_of_month, month, day_of_week, api_url, username, password)
-                    )
-                conn.commit()
-                conn.close()
-                configure_scheduler()
-                success_message = "Schedule added successfully."
-            except Exception as e:
-                error = f"Error adding schedule: {e}"
-        elif action == 'delete_schedule':
-            schedule_id = request.form.get('schedule_id')
-            try:
-                connection = get_db_connection()
-                with connection.cursor() as cursor:
-                    cursor.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
-                connection.commit()
-                connection.close()
-                configure_scheduler()
-                success_message = "Schedule deleted successfully."
-            except Exception as e:
-                error = f"Error deleting schedule: {e}"
-        else:
-            error = "API URL, username, and password are required."
-
-    schedules = []
     try:
-        conn = get_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM schedules")
-            schedules = cursor.fetchall()
-        conn.close()
+        if api_url and username and password:
+            # Save credentials to the database
+            connection = get_db_connection()
+            with connection.cursor() as cursor:
+                cursor.execute("TRUNCATE TABLE credentials")
+                print("Truncated credentials table.")
+                cursor.execute("INSERT INTO credentials (api_url, username, password) VALUES (%s, %s, %s)", (api_url, username, password))
+                print("Inserted new credentials.")
+            connection.commit()
+            connection.close()
+            print("Saved credentials to database.")
+
+            if action == 'fetch':
+                auth_string = f"{username}:{password}"
+                encoded_auth = base64.b64encode(auth_string.encode()).decode()
+                auth_header = {"Authorization": f"Basic {encoded_auth}"}
+
+                response = requests.get(api_url + "?$format=xml", headers=auth_header, verify=False)
+                response.raise_for_status()
+
+                root = ET.fromstring(response.content)
+                entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+                data = []
+                for entry in entries:
+                    properties = {}
+                    for prop in entry.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}properties/*'):
+                        properties[prop.tag.split('}')[-1]] = prop.text
+                    data.append(properties)
+                success_message = "Data fetched successfully."
+
+            elif action == 'send_mail':
+                send_immediate_mail()
+                success_message = "Immediate mail sent successfully."
+
+    except requests.exceptions.RequestException as e:
+        error = str(e)
     except Exception as e:
-        print(f"Could not fetch schedules: {e}")
+        error = str(e)
+
+    # Fetch schedules to display on the page
+    connection = get_db_connection()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM schedules ORDER BY hour, minute")
+        schedules = cursor.fetchall()
+    connection.close()
 
     return render_template('index.html', data=data, error=error, success_message=success_message, schedules=schedules)
 
-# ----------------------- Database & Scheduler ----------------------- #
+@app.route('/add_schedule', methods=['POST'])
+def add_schedule():
+    minute = request.form.get('minute')
+    hour = request.form.get('hour')
+    day_of_month = request.form.get('day_of_month')
+    month = request.form.get('month')
+    day_of_week = request.form.get('day_of_week')
+    api_url = request.form.get('odata_url')
+    username = request.form.get('username')
+    password = request.form.get('password')
+
+    error = None
+    success_message = None
+    try:
+        connection = get_db_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("INSERT INTO schedules (minute, hour, day_of_month, month, day_of_week) VALUES (%s, %s, %s, %s, %s)", (minute, hour, day_of_month, month, day_of_week))
+        connection.commit()
+        connection.close()
+        configure_scheduler() # Reconfigure scheduler with new schedule
+        success_message = "Schedule added successfully."
+    except Exception as e:
+        error = f"Error adding schedule: {e}"
+
+    return redirect(url_for('index', odata_url=api_url, username=username, password=password, success_message=success_message, error=error))
+
+@app.route('/delete_schedule', methods=['POST'])
+def delete_schedule():
+    schedule_id = request.form.get('schedule_id')
+    api_url = request.form.get('odata_url')
+    username = request.form.get('username')
+    password = request.form.get('password')
+
+    error = None
+    success_message = None
+    try:
+        connection = get_db_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
+        connection.commit()
+        connection.close()
+        configure_scheduler() # Reconfigure scheduler after deleting schedule
+        success_message = "Schedule deleted successfully."
+    except Exception as e:
+        error = f"Error deleting schedule: {e}"
+
+    return redirect(url_for('index', odata_url=api_url, username=username, password=password, success_message=success_message, error=error))
 def get_db_connection():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, cursorclass=pymysql.cursors.DictCursor)
 
@@ -260,13 +279,8 @@ def configure_scheduler():
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM schedules")
             schedules = cursor.fetchall()
-        conn.close()
-        for s in schedules:
-            scheduler.add_job(fetch_and_send, 'cron',
-                              minute=s['minute'], hour=s['hour'],
-                              day=s['day_of_month'], month=s['month'],
-                              day_of_week=s['day_of_week'],
-                              args=[s['api_url'], s['username'], s['password']])
+        connection.close()
+
         if schedules:
             scheduler.start()
     except Exception as e:
@@ -276,15 +290,4 @@ def configure_scheduler():
 if __name__ == '__main__':
     init_db()
     configure_scheduler()
-    
-    host = "0.0.0.0"
-    port = 5000
-
-    print(f"🚀 Running SAP server on http://127.0.0.1:{port}{url_prefix}")
-    try:
-        ip = socket.gethostbyname(socket.gethostname())
-    except:
-        ip = "127.0.0.1"
-    print(f"🌍 Accessible on network: http://{ip}:{port}{url_prefix}")
-
-    app.run(host=host, port=port, debug=True, use_reloader=False)
+    app.run(debug=False)
