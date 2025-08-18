@@ -195,6 +195,18 @@ def index():
                 success_message = "Schedule added successfully."
             except Exception as e:
                 error = f"Error adding schedule: {e}"
+        elif action == 'delete_schedule':
+            schedule_id = request.form.get('schedule_id')
+            try:
+                connection = get_db_connection()
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
+                connection.commit()
+                connection.close()
+                configure_scheduler()
+                success_message = "Schedule deleted successfully."
+            except Exception as e:
+                error = f"Error deleting schedule: {e}"
         else:
             error = "API URL, username, and password are required."
 
